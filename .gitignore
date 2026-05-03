@@ -1,0 +1,13 @@
+.next
+node_modules
+.env
+.env.local
+.env.production
+ServiceAccountKey.json
+firebase-service-account.json
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+coverage
+firebase-licenses-backup-*.json

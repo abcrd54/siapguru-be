@@ -1,0 +1,682 @@
+PANDUAN FLOW PROJECT ADMIN SIAPGURU
+===================================
+
+1. TUJUAN PROJECT ADMIN
+-----------------------
+Folder `admin` dipakai hanya untuk 2 fungsi utama:
+
+1. Mengelola konfigurasi API key yang akan dipakai oleh aplikasi desktop
+2. Membuat dan mengelola license key yang dipakai guru untuk membuka aplikasi desktop
+3. Mengirim license key yang dibuat ke Firebase Firestore agar tetap kompatibel dengan aplikasi desktop yang sekarang
+
+Admin di project ini tidak perlu menjadi LMS penuh.
+Admin tidak perlu mengelola nilai, raport, atau workflow guru harian.
+Admin hanya menjadi control panel ringan untuk:
+- API AI
+- API Cloudinary
+- license key
+- status aktivasi perangkat desktop
+
+
+2. BATASAN SCOPE
+----------------
+Scope admin:
+- login admin
+- simpan API key OpenRouter
+- simpan model AI aktif
+- simpan konfigurasi Cloudinary
+- generate license key
+- aktif/nonaktif license key
+- lihat perangkat yang memakai license key
+
+Di luar scope admin saat ini:
+- CRUD mapel
+- CRUD kelas
+- CRUD siswa
+- pengerjaan soal siswa
+- upload modul dari web admin
+- dashboard siswa
+
+
+3. STACK YANG DIPAKAI
+---------------------
+Frontend:
+- JavaScript
+- Next.js
+- Tailwind CSS
+- shadcn/ui
+
+Backend/data:
+- Supabase Auth
+- Supabase Postgres
+
+Provider eksternal:
+- OpenRouter
+- Cloudinary
+
+
+4. FLOW BESAR PROJECT
+---------------------
+Arsitektur sederhananya:
+
+1. Admin login ke dashboard web
+2. Admin mengisi API key provider
+3. Admin membuat license key untuk guru
+4. Guru membuka aplikasi desktop
+5. Guru memasukkan license key
+6. Desktop memanggil backend admin untuk validasi license
+7. Jika valid, desktop bisa dipakai
+8. Saat desktop perlu generate soal AI, desktop tidak memakai key lokal
+9. Desktop meminta backend admin untuk melakukan request ke OpenRouter
+10. Saat desktop perlu publish modul, backend admin yang memakai key Cloudinary
+
+Intinya:
+- API key provider hanya ada di admin/backend
+- desktop hanya memanggil endpoint admin
+- guru hanya memegang license key, bukan key provider
+
+
+5. MENU YANG DIBUTUHKAN DI ADMIN
+--------------------------------
+Menu admin cukup sederhana:
+
+1. Dashboard
+2. Konfigurasi API
+3. License Key
+4. Aktivasi Desktop
+5. Firebase Sync
+
+Penjelasan:
+
+5.1 Dashboard
+- ringkasan jumlah license aktif
+- jumlah perangkat aktif
+- status konfigurasi API
+
+5.2 Konfigurasi API
+- form isi OpenRouter API key
+- form isi model AI default
+- form isi Cloudinary cloud name
+- form isi Cloudinary API key
+- form isi Cloudinary API secret
+
+5.3 License Key
+- buat license baru
+- lihat daftar license
+- ubah status aktif/nonaktif
+- atur expiry
+- atur max device
+
+5.4 Aktivasi Desktop
+- lihat daftar perangkat desktop yang aktif
+- device id
+- device name
+- license yang dipakai
+- waktu check terakhir
+
+5.5 Firebase Sync
+- tombol kirim license ke Firestore
+- status sinkronisasi Firebase
+- retry bila gagal
+
+
+6. FLOW MENU KONFIGURASI API
+----------------------------
+Tujuan menu ini:
+- admin mengisi semua secret provider sekali
+- desktop tidak pernah tahu secret asli
+
+Field yang dibutuhkan:
+
+OpenRouter:
+- openrouter_api_key
+- openrouter_model
+
+Cloudinary:
+- cloudinary_cloud_name
+- cloudinary_api_key
+- cloudinary_api_secret
+
+Flow:
+1. Admin buka menu Konfigurasi API
+2. Isi key OpenRouter
+3. Isi model default, misalnya `inclusionai/ling-2.6-1t:free`
+4. Isi konfigurasi Cloudinary
+5. Klik simpan
+6. Backend menyimpan konfigurasi ke database
+7. Semua endpoint desktop akan membaca provider config dari database ini
+
+Aturan:
+- key harus disimpan server-side
+- jangan kirim penuh ke browser setelah tersimpan
+- di UI tampilkan versi masked
+
+Contoh masked:
+- `sk-or-v1-************`
+- `248936******`
+
+
+7. FLOW LICENSE KEY
+-------------------
+License key dipakai guru untuk membuka aplikasi desktop.
+
+Flow:
+1. Admin buka menu License Key
+2. Admin klik tombol Buat License
+3. Admin isi data dasar
+4. Sistem membuat key unik
+5. Key disimpan ke database
+6. Admin copy key
+7. Guru input key ke desktop
+8. Desktop validasi ke backend
+
+Field minimal saat membuat license:
+- nama guru
+- nama sekolah
+- max_devices
+- allow_offline_days
+- expired_at
+- status
+
+Status license:
+- active
+- inactive
+- expired
+
+Setelah license dibuat di admin, ada 2 penyimpanan:
+- disimpan di database Supabase admin
+- dikirim ke Firebase collection `licenses`
+
+Tujuannya:
+- dashboard admin tetap menjadi sumber kelola utama
+- desktop lama tetap bisa validasi ke Firebase seperti sekarang
+
+
+8. FORMAT LICENSE KEY
+---------------------
+Format yang disarankan:
+
+SG-GURU-AB12-CD34-EF56
+
+Atau:
+
+SG-2026-GURU-X8L2-P9QW-M4RT
+
+Rekomendasi final:
+- gunakan prefix tetap
+- gunakan uppercase alphanumeric
+- kelompok 4 karakter agar mudah dibaca
+
+Contoh:
+- SG-GURU-7K2M-PQ4T-N8LX
+
+
+9. LOGIC GENERATE LICENSE KEY
+-----------------------------
+Langkah server:
+1. generate string random uppercase alphanumeric
+2. format jadi blok 4 karakter
+3. tambahkan prefix `SG-GURU`
+4. cek ke database apakah sudah ada
+5. jika ada, generate ulang
+6. simpan ke tabel licenses
+
+Pseudo alur:
+- random = X7K2PQ4TN8LX
+- format = X7K2-PQ4T-N8LX
+- final = SG-GURU-X7K2-PQ4T-N8LX
+
+
+10. FLOW VALIDASI LICENSE DARI DESKTOP
+--------------------------------------
+Saat guru membuka desktop:
+
+1. Guru input license key
+2. Desktop mengirim request ke backend admin
+3. Backend mencari key di database
+4. Backend cek:
+   - status aktif
+   - belum expired
+   - device limit
+5. Backend cek device id
+6. Jika device baru dan slot masih tersedia:
+   - simpan device ke tabel aktivasi
+7. Backend balas data lisensi ke desktop
+8. Desktop menyimpan cache offline lokal
+
+Catatan penting:
+- selama desktop current version masih memakai Firebase license provider, data license harus tersedia di Firestore
+- nanti kalau desktop sudah sepenuhnya pindah ke backend admin, Firebase bisa dijadikan fallback atau dihapus
+
+
+10A. FLOW SYNC LICENSE KE FIREBASE
+----------------------------------
+Flow ini diperlukan agar license yang dibuat dari admin bisa dibaca oleh desktop versi sekarang.
+
+Flow:
+1. Admin membuat license di dashboard
+2. License disimpan ke tabel `licenses` di Supabase
+3. Admin klik `Sync ke Firebase` atau sistem auto sync setelah create
+4. Backend admin membaca service account Firebase dari file lokal/server secret
+5. Backend admin menulis dokumen ke Firestore collection `licenses`
+6. `docId` Firestore memakai nilai `license_key`
+7. Desktop tetap membaca koleksi Firebase seperti logic saat ini
+
+Aturan mapping:
+- `docId` Firestore = `license_key`
+- field Firestore harus mengikuti format yang dibaca desktop sekarang
+
+Koleksi Firestore:
+- `licenses`
+
+Dokumen contoh:
+- `licenses/SG-GM-2026-R4T8-Z9KP-M6YN`
+
+Request dari desktop:
+- license_key
+- device_id
+- device_name
+- app_version
+
+Response ke desktop:
+- is_activated
+- customer_name
+- active_key
+- allow_offline_days
+- max_devices
+- notes
+
+
+11. FLOW GENERATE SOAL AI
+-------------------------
+Desktop tidak langsung memegang OpenRouter key.
+
+Flow:
+1. Guru upload modul di desktop
+2. Desktop ekstrak teks PDF lokal
+3. Guru pilih generate soal
+4. Desktop membuat prompt
+5. Desktop kirim prompt ke backend admin
+6. Backend membaca `openrouter_api_key` dari database
+7. Backend request ke OpenRouter
+8. Backend mengembalikan hasil ke desktop
+9. Desktop menampilkan hasil draft soal
+
+Keuntungan:
+- key aman
+- model bisa diganti dari admin
+- desktop tidak perlu update kalau model berubah
+
+
+12. FLOW UPLOAD MODUL KE CLOUDINARY
+-----------------------------------
+Desktop tidak langsung memakai Cloudinary secret.
+
+Flow:
+1. Guru upload modul di desktop
+2. Desktop ekstrak teks PDF lokal
+3. Jika modul perlu dipublish untuk siswa:
+   - desktop kirim file ke backend admin
+4. Backend membaca kredensial Cloudinary dari database
+5. Backend upload file ke Cloudinary
+6. Backend simpan URL hasil upload
+7. Backend balas URL ke desktop
+8. Desktop simpan metadata lokal
+
+Keuntungan:
+- Cloudinary secret aman
+- semua upload terkontrol dari server
+
+
+13. TABEL DATABASE YANG DIBUTUHKAN
+----------------------------------
+Tabel minimal di Supabase:
+
+13.1 admin_profiles
+- id uuid pk references auth.users
+- full_name text
+- role text
+- is_active boolean
+- created_at timestamptz
+
+13.2 provider_settings
+- id uuid pk
+- openrouter_api_key text
+- openrouter_model text
+- cloudinary_cloud_name text
+- cloudinary_api_key text
+- cloudinary_api_secret text
+- updated_at timestamptz
+
+Karena project ini sederhana, tabel ini cukup satu row aktif.
+
+13.3 licenses
+- id uuid pk
+- teacher_name text
+- school_name text
+- license_key text unique
+- status text
+- max_devices integer
+- allow_offline_days integer
+- expired_at timestamptz null
+- notes text
+- created_at timestamptz
+- updated_at timestamptz
+
+13.4 license_devices
+- id uuid pk
+- license_id uuid fk
+- device_id text
+- device_name text
+- app_version text
+- activated_at timestamptz
+- last_check_at timestamptz
+
+13.5 firebase_sync_logs
+- id uuid pk
+- license_id uuid fk
+- provider text
+- status text
+- request_payload jsonb
+- response_payload jsonb
+- error_message text
+- synced_at timestamptz
+
+
+14. ENDPOINT YANG DIBUTUHKAN
+----------------------------
+Endpoint admin internal:
+- POST /api/admin/provider-settings/save
+- GET /api/admin/provider-settings
+- POST /api/admin/licenses/create
+- POST /api/admin/licenses/update-status
+- GET /api/admin/licenses/list
+- GET /api/admin/devices/list
+- POST /api/admin/licenses/:id/sync-firebase
+
+Endpoint untuk desktop:
+- POST /api/desktop/license/activate
+- POST /api/desktop/license/validate
+- POST /api/desktop/ai/generate-questions
+- POST /api/desktop/modules/upload-cloud
+
+
+15. DETAIL ENDPOINT DESKTOP
+---------------------------
+15.1 Activate license
+Endpoint:
+- POST /api/desktop/license/activate
+
+Input:
+- license_key
+- device_id
+- device_name
+- app_version
+
+Output:
+- success
+- enabled
+- allow_offline_days
+- teacher_name
+- school_name
+- notes
+
+15.2 Generate AI
+Endpoint:
+- POST /api/desktop/ai/generate-questions
+
+Input:
+- license_key
+- module_title
+- class_name
+- subject_name
+- question_type
+- question_count
+- choice_count
+- prompt_text
+
+Output:
+- success
+- provider
+- model
+- response_text
+
+15.3 Upload cloud
+Endpoint:
+- POST /api/desktop/modules/upload-cloud
+
+Input:
+- license_key
+- module_title
+- file
+
+Output:
+- success
+- public_id
+- secure_url
+
+
+16. UI YANG DISARANKAN
+----------------------
+16.1 Dashboard
+- card jumlah license aktif
+- card jumlah perangkat aktif
+- card status OpenRouter
+- card status Cloudinary
+
+16.2 Konfigurasi API
+- form OpenRouter
+- form Cloudinary
+- tombol simpan
+- indikator status configured / not configured
+
+16.3 License Key
+- tabel daftar license
+- tombol buat license
+- dialog create license
+- tombol copy key
+- badge status
+
+16.4 Aktivasi Desktop
+- tabel device
+- filter berdasarkan license
+- last check
+
+
+17. ALUR IMPLEMENTASI BERTAHAP
+------------------------------
+Tahap 1:
+- setup Next.js + Tailwind + shadcn/ui
+- setup Supabase Auth
+- login admin
+- dashboard layout
+
+Tahap 2:
+- buat tabel provider_settings
+- buat menu Konfigurasi API
+- simpan OpenRouter dan Cloudinary key
+
+Tahap 3:
+- buat tabel licenses
+- buat UI generate license key
+- buat tabel license_devices
+- buat endpoint aktivasi desktop
+
+Tahap 3A:
+- tambahkan service Firebase Admin SDK
+- tambahkan tombol sync license ke Firebase
+- mapping field license admin -> dokumen Firestore
+- logging hasil sync
+
+Tahap 4:
+- buat endpoint generate soal via OpenRouter
+- buat endpoint upload PDF ke Cloudinary
+
+Tahap 5:
+- sambungkan desktop ke endpoint admin
+- hilangkan kebutuhan secret provider di desktop
+
+
+18. PRINSIP PENTING
+-------------------
+Prinsip utama project ini:
+
+1. Desktop tidak boleh menyimpan API secret provider sebagai sumber utama
+2. Semua secret provider dikelola di admin/backend
+3. Guru hanya memakai license key
+4. Admin hanya fokus ke pengaturan provider dan lisensi
+5. Flow harus sesederhana mungkin
+
+
+19. HASIL AKHIR YANG DIINGINKAN
+-------------------------------
+Setelah admin ini selesai:
+
+- admin bisa login
+- admin bisa isi OpenRouter API key
+- admin bisa isi Cloudinary API key
+- admin bisa generate license key untuk guru
+- admin bisa sync license key ke Firebase Firestore
+- desktop bisa validasi license key ke backend
+- desktop bisa meminta backend untuk generate soal AI
+- desktop bisa meminta backend untuk upload PDF ke Cloudinary
+
+Itu sudah cukup untuk fondasi versi berikutnya.
+
+
+20. FORMAT DOKUMEN FIRESTORE UNTUK LICENSE
+------------------------------------------
+Agar kompatibel dengan desktop sekarang, dokumen Firestore sebaiknya memakai struktur seperti ini:
+
+- license_key
+- app_id
+- app_name
+- license_type
+- license_role
+- plan
+- status
+- owner_name
+- owner_email
+- owner_phone
+- institution_name
+- max_devices
+- used_devices
+- activated_at
+- expired_at
+- created_at
+- updated_at
+- created_by
+- last_check_at
+- allow_offline_days
+- force_update
+- minimum_app_version
+- features
+- notes
+
+Mapping minimum dari data admin:
+- `license_key` -> dari tabel licenses
+- `app_id` -> `siapguru`
+- `app_name` -> `SiapGuru`
+- `license_type` -> misal `lifetime` atau `subscription`
+- `license_role` -> misal `guru`
+- `plan` -> nama paket internal
+- `status` -> active/inactive
+- `owner_name` -> nama guru
+- `institution_name` -> nama sekolah
+- `max_devices` -> dari admin
+- `used_devices` -> array kosong saat awal
+- `allow_offline_days` -> dari admin
+- `minimum_app_version` -> default `1.0.0`
+- `features` -> object boolean
+- `notes` -> catatan admin
+
+
+21. CONTOH SCRIPT SYNC FIREBASE YANG DIANJURKAN
+-----------------------------------------------
+Contoh ini dipakai di sisi admin/backend, bukan di desktop.
+Jangan commit service account ke repo.
+
+Contoh file:
+- `admin/scripts/sync-license-to-firebase.js`
+
+Contoh isi:
+
+```js
+const admin = require("firebase-admin");
+const serviceAccount = require("../ServiceAccountKey.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
+const db = admin.firestore();
+
+async function syncLicense(license) {
+  const docId = license.license_key;
+  await db.collection("licenses").doc(docId).set({
+    license_key: license.license_key,
+    app_id: "siapguru",
+    app_name: "SiapGuru",
+    license_type: license.license_type ?? "lifetime",
+    license_role: license.license_role ?? "guru",
+    plan: license.plan ?? "default_plan",
+    status: license.status ?? "active",
+    owner_name: license.owner_name ?? "",
+    owner_email: license.owner_email ?? "",
+    owner_phone: license.owner_phone ?? "",
+    institution_name: license.institution_name ?? "",
+    max_devices: license.max_devices ?? 1,
+    used_devices: license.used_devices ?? [],
+    activated_at: license.activated_at ?? null,
+    expired_at: license.expired_at ?? null,
+    created_at: license.created_at ?? new Date().toISOString().slice(0, 10),
+    updated_at: license.updated_at ?? new Date().toISOString().slice(0, 10),
+    created_by: license.created_by ?? "admin_dashboard",
+    last_check_at: license.last_check_at ?? null,
+    allow_offline_days: license.allow_offline_days ?? 30,
+    force_update: license.force_update ?? false,
+    minimum_app_version: license.minimum_app_version ?? "1.0.0",
+    features: license.features ?? {
+      guru: true,
+    },
+    notes: license.notes ?? "",
+  });
+}
+```
+
+Catatan:
+- script di atas adalah template
+- isi `features` harus disesuaikan dengan mode/fitur yang benar-benar dibaca desktop
+- service account harus disimpan di server atau file lokal yang di-ignore git
+
+
+22. ATURAN KEAMANAN FIREBASE SERVICE ACCOUNT
+--------------------------------------------
+Jangan lakukan ini:
+- tempel isi private key di source file
+- commit service account JSON ke git
+- kirim service account ke desktop
+
+Lakukan ini:
+- simpan service account di server admin
+- atau simpan path file di env server
+- tambahkan file JSON ke `.gitignore`
+
+Karena service account yang kamu kirim tadi adalah secret tingkat tinggi, idealnya:
+- rotate / regenerate service account atau key bila sudah pernah tersebar
+
+
+23. REKOMENDASI IMPLEMENTASI FIREBASE DI ADMIN
+----------------------------------------------
+Rekomendasi flow nyata:
+
+1. Admin membuat license
+2. License masuk Supabase
+3. Backend langsung memanggil service sync Firebase
+4. Jika sukses:
+   - tandai synced
+5. Jika gagal:
+   - simpan ke `firebase_sync_logs`
+   - tampilkan tombol retry di UI admin
+
+Ini lebih baik daripada input manual per script setiap kali.
