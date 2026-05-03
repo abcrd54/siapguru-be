@@ -11,3 +11,5 @@ yarn-error.log*
 pnpm-debug.log*
 coverage
 firebase-licenses-backup-*.json
+
+.vercel
