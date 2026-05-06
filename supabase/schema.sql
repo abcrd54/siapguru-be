@@ -140,7 +140,7 @@ create table if not exists public.mobile_exams (
   id uuid primary key default gen_random_uuid(),
   source_license_key text not null default '',
   source_request_local_id integer,
-  module_id uuid not null references public.mobile_modules (id) on delete cascade,
+  module_id uuid references public.mobile_modules (id) on delete cascade,
   title text not null,
   class_name text not null,
   subject_name text not null,
@@ -283,6 +283,7 @@ alter table public.mobile_modules add column if not exists created_at timestampt
 alter table public.mobile_modules add column if not exists updated_at timestamptz not null default now();
 
 alter table public.mobile_exams add column if not exists module_id uuid references public.mobile_modules (id) on delete cascade;
+alter table public.mobile_exams alter column module_id drop not null;
 alter table public.mobile_exams add column if not exists source_license_key text not null default '';
 alter table public.mobile_exams add column if not exists source_request_local_id integer;
 alter table public.mobile_exams add column if not exists title text;
